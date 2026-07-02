@@ -1,0 +1,2006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0">
+<meta name="theme-color" content="#FBF6EC">
+<title>Snap ✎ Camera</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Nunito:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper: #FBF6EC;
+    --paper-dim: #F3ECDD;
+    --ink: #221F1B;
+    --pencil: #9C9285;
+    --marker: #FFD23F;
+    --marker-dark: #E8B927;
+    --red: #E8543E;
+    --line: #221F1B;
+  }
+  *{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body{
+    margin:0; padding:0; height:100%;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Nunito', sans-serif;
+    overscroll-behavior: none;
+  }
+  .app{
+    height:100dvh;
+    display:flex;
+    flex-direction:column;
+    padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+    gap: 12px;
+  }
+
+  /* ── Tablet / desktop only: contain the (unchanged) phone layout in a
+       centered, phone-proportioned card instead of stretching full-bleed.
+       Nothing below this affects viewports under 640px (phones). ── */
+  @media (min-width: 640px){
+    html, body{
+      background: var(--paper-dim);
+    }
+    body{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      min-height:100%;
+    }
+    .app{
+      height: min(100dvh, 900px);
+      width: min(100vw, 460px);
+      aspect-ratio: 9 / 19.5;
+      max-height: 96vh;
+      border-radius: 28px;
+      box-shadow: 0 18px 40px rgba(34,31,27,.25), 0 0 0 2px var(--ink);
+      overflow: hidden;
+    }
+  }
+
+  /* Short/landscape tablet or desktop windows: size by height instead so
+     the card never gets clipped top/bottom. */
+  @media (min-width: 640px) and (max-height: 700px){
+    .app{
+      aspect-ratio: auto;
+      width: min(56vh, 460px);
+    }
+  }
+
+  /* ── Header, hand-lettered ── */
+  header{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding: 2px 6px;
+  }
+  .banner{
+    position:relative;
+    width:100%;
+    max-width: 420px;
+    border-radius: 18px;
+    overflow:hidden;
+    filter: url(#roughen);
+    box-shadow: 0 3px 0 var(--ink);
+    background:#1B1916;
+  }
+  .banner img{
+    display:block;
+    width:100%;
+    height:auto;
+  }
+  .banner .tape{
+    width:46px; height:18px;
+  }
+  .banner .tape.tl{ top:-7px; left:10px; }
+  .banner .tape.tr{ top:-7px; right:10px; }
+
+
+  /* ── Camera frame: wobbly hand-drawn border via SVG filter ── */
+  .frame{
+    position:relative;
+    flex:1;
+    min-height: 0;
+    border-radius: 22px;
+    overflow:hidden;
+    background:#111;
+    filter: url(#roughen);
+    box-shadow: 0 3px 0 var(--ink);
+  }
+  .frame-inner{
+    position:absolute; inset:0;
+    border-radius: 22px;
+    overflow:hidden;
+    background:#000;
+  }
+  video, .preview-img{
+    width:100%; height:100%;
+    object-fit:cover;
+    display:block;
+  }
+  video.mirrored{ transform: scaleX(-1); }
+  canvas{ display:none; }
+
+  /* ── Rule-of-thirds grid overlay ── */
+  .grid-overlay{
+    position:absolute; inset:0;
+    z-index:2;
+    pointer-events:none;
+    display:none;
+  }
+  .grid-overlay.show{ display:block; }
+  .grid-overlay .gl{
+    position:absolute;
+    background: rgba(251,246,236,.55);
+  }
+  .grid-overlay .gl.v1{ left:33.333%; top:0; bottom:0; width:1px; }
+  .grid-overlay .gl.v2{ left:66.666%; top:0; bottom:0; width:1px; }
+  .grid-overlay .gl.h1{ top:33.333%; left:0; right:0; height:1px; }
+  .grid-overlay .gl.h2{ top:66.666%; left:0; right:0; height:1px; }
+
+  /* ── Tap-to-focus ring ── */
+  .focus-ring{
+    position:absolute;
+    width:64px; height:64px;
+    margin-left:-32px; margin-top:-32px;
+    border: 2.5px solid var(--marker);
+    border-radius: 14px;
+    z-index:6;
+    pointer-events:none;
+    opacity:0;
+  }
+  .focus-ring.show{
+    animation: focusPulse .7s ease-out;
+  }
+  @keyframes focusPulse{
+    0%{ opacity:0; transform: scale(1.35); }
+    18%{ opacity:1; transform: scale(1); }
+    75%{ opacity:1; transform: scale(1); border-color: var(--marker); }
+    100%{ opacity:0; transform: scale(1); border-color: var(--marker); }
+  }
+
+  /* washi-tape corner pins, purely decorative */
+  .tape{
+    position:absolute;
+    width:54px; height:22px;
+    background: repeating-linear-gradient(45deg, rgba(255,210,63,.85) 0 6px, rgba(232,84,62,.7) 6px 12px);
+    opacity:.9;
+    box-shadow: 0 1px 2px rgba(0,0,0,.25);
+    z-index:3;
+  }
+  .tape.tl{ top:-8px; left:14px; transform: rotate(-8deg); }
+  .tape.tr{ top:-8px; right:14px; transform: rotate(7deg); }
+
+  .status{
+    position:absolute; inset:0;
+    display:none;
+    align-items:center; justify-content:center;
+    flex-direction:column;
+    text-align:center;
+    padding: 28px;
+    background: var(--paper-dim);
+    color: var(--ink);
+    z-index:4;
+  }
+  .status.show{ display:flex; }
+  .status .icon{ font-size:40px; margin-bottom:10px; }
+  .status p{ font-family:'Kalam',cursive; font-size:18px; margin:0 0 14px; line-height:1.4; max-width:280px; }
+  .status button{
+    font-family:'Kalam',cursive;
+    font-size:16px;
+    background: var(--marker);
+    border: 2.5px solid var(--ink);
+    border-radius: 12px;
+    padding: 9px 20px;
+    cursor:pointer;
+  }
+  .status button:active{ transform: translateY(1px); }
+
+  .topbar{
+    position:absolute; top:10px; left:10px; right:10px;
+    display:flex; justify-content:space-between; align-items:center;
+    z-index:5;
+  }
+  .topbar-right{
+    display:flex; align-items:center; gap:8px;
+  }
+  .pill.toggle{
+    cursor:pointer;
+    font-weight:700;
+    transition: background .15s ease, color .15s ease;
+  }
+  .pill.toggle:active{ transform: translateY(1px); }
+  .pill.toggle.active{
+    background: var(--marker);
+    color: var(--ink);
+  }
+
+  /* ── Filter strip: three side-by-side buttons, right-to-left order (90s-2 / 90s-1 / Normal) ── */
+  .filter-strip{
+    display:flex;
+    flex-direction:row-reverse;
+    gap:8px;
+    padding: 0 2px;
+  }
+  .filter-chip{
+    flex:1;
+    min-width:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    font-family:'Kalam',cursive;
+    font-size:13px;
+    font-weight:700;
+    background: var(--paper-dim);
+    border: 2px solid var(--ink);
+    border-radius: 12px;
+    padding: 8px 4px;
+    cursor:pointer;
+    color: var(--ink);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .filter-chip:active{ transform: translateY(1px); }
+  .filter-chip.active{
+    background: var(--marker);
+    box-shadow: 0 2px 0 var(--ink);
+  }
+  .fc-swatch{
+    width:14px; height:14px;
+    border-radius:50%;
+    border: 1.5px solid var(--ink);
+    flex-shrink:0;
+  }
+  .fc-none{ background: #ddd; }
+  .fc-film1{ background: linear-gradient(135deg, #E8B927, #7a5230); }
+  .fc-film2{ background: linear-gradient(135deg, #E8543E, #7a5f9c); }
+  .fc-dreamy{ background: linear-gradient(135deg, #cdd3dc, #5c6472); }
+  .fc-pinksky{ background: linear-gradient(135deg, #f3b3ae, #6e3a3d); }
+  .pill{
+    font-family:'Kalam',cursive;
+    font-size:13px;
+    background: rgba(251,246,236,.92);
+    border: 2px solid var(--ink);
+    border-radius: 20px;
+    padding: 4px 12px;
+    display:flex; align-items:center; gap:6px;
+  }
+  .pill .rec-dot{
+    width:8px; height:8px; border-radius:50%;
+    background: var(--red);
+  }
+  .iconbtn{
+    width:38px; height:38px;
+    border-radius:50%;
+    background: rgba(251,246,236,.92);
+    border: 2px solid var(--ink);
+    display:flex; align-items:center; justify-content:center;
+    font-size:17px;
+    cursor:pointer;
+  }
+  .iconbtn:active{ transform: translateY(1px); }
+  .iconbtn:disabled{ opacity:.35; }
+
+  /* ── Gallery (Files) ── */
+  .gallery-backdrop{
+    position:fixed; inset:0;
+    background: rgba(34,31,27,.45);
+    z-index:70;
+    display:none;
+    align-items:flex-end;
+    justify-content:center;
+  }
+  .gallery-backdrop.show{ display:flex; }
+  .gallery-sheet{
+    width:100%;
+    max-width: 480px;
+    height: 78vh;
+    background: var(--paper);
+    border: 2.5px solid var(--ink);
+    border-bottom:none;
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -3px 0 var(--ink);
+    transform: translateY(100%);
+    transition: transform .25s ease;
+    display:flex;
+    flex-direction:column;
+  }
+  .gallery-backdrop.show .gallery-sheet{ transform: translateY(0); }
+  .gallery-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 16px 18px 10px;
+    border-bottom: 2px solid var(--ink);
+  }
+  .gallery-head h2{
+    font-family:'Kalam',cursive;
+    font-size:20px;
+    margin:0;
+  }
+  .gallery-close{
+    width:32px; height:32px;
+    border-radius:50%;
+    border: 2px solid var(--ink);
+    background: var(--paper-dim);
+    font-size:15px;
+    cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .gallery-close:active{ transform: translateY(1px); }
+  .gallery-grid{
+    flex:1;
+    overflow-y:auto;
+    display:grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap:8px;
+    padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+  }
+  .gallery-empty{
+    grid-column: 1 / -1;
+    text-align:center;
+    font-family:'Kalam',cursive;
+    color: var(--pencil);
+    padding: 40px 20px;
+    font-size:15px;
+  }
+  .gallery-item{
+    position:relative;
+    aspect-ratio: 1;
+    border-radius: 10px;
+    overflow:hidden;
+    border: 2px solid var(--ink);
+    background: var(--paper-dim);
+    cursor:pointer;
+  }
+  .gallery-item img{
+    width:100%; height:100%;
+    object-fit:cover;
+    display:block;
+  }
+  .gallery-item .gi-badge{
+    position:absolute;
+    top:4px; right:4px;
+    width:18px; height:18px;
+    border-radius:50%;
+    background: var(--marker);
+    border: 1.5px solid var(--ink);
+    font-size:10px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .gallery-item .gi-badge.sent{ background:#8fd19e; }
+  .gallery-item .gi-badge.pending{ background:#e6b8a2; }
+
+  /* ── Full-size photo viewer within gallery ── */
+  .gallery-viewer{
+    position:absolute; inset:0;
+    background: var(--paper);
+    display:none;
+    flex-direction:column;
+    z-index:2;
+  }
+  .gallery-viewer.show{ display:flex; }
+  .gv-img-wrap{
+    flex:1;
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+    background:#000;
+  }
+  .gv-img-wrap img{
+    max-width:100%; max-height:100%;
+    object-fit:contain;
+  }
+  .gv-meta{
+    font-family:'Kalam',cursive;
+    font-size:13px;
+    color: var(--pencil);
+    text-align:center;
+    padding: 8px 12px 0;
+  }
+  .gv-actions{
+    display:flex; gap:10px;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  }
+  .gv-actions button{
+    flex:1;
+    font-family:'Kalam',cursive;
+    font-size:15px;
+    border: 2.5px solid var(--ink);
+    border-radius: 12px;
+    padding: 10px;
+    cursor:pointer;
+  }
+  .gv-back{ background: var(--paper-dim); color: var(--ink); }
+  .gv-resend{ background: var(--marker); color: var(--ink); }
+  .gv-actions button:active{ transform: translateY(1px); }
+  .gv-actions button:disabled{ opacity:.5; }
+
+  /* scribble burst on capture */
+  .burst{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    pointer-events:none;
+    opacity:0;
+    z-index:6;
+  }
+  .burst.go{ animation: burstPop .5s ease-out; }
+  @keyframes burstPop{
+    0%{ opacity:1; transform:scale(.7); }
+    60%{ opacity:1; transform:scale(1.05); }
+    100%{ opacity:0; transform:scale(1.25); }
+  }
+  .flashwhite{
+    position:absolute; inset:0;
+    background:#fff;
+    opacity:0;
+    pointer-events:none;
+    z-index:5;
+  }
+  .flashwhite.go{ animation: flashPop .28s ease-out; }
+  @keyframes flashPop{ 0%{opacity:.8;} 100%{opacity:0;} }
+
+  /* ── Controls ── */
+  .controls{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap: 30px;
+    padding: 6px 0 2px;
+  }
+  .shutter-wrap{ position:relative; width:84px; height:84px; }
+  .shutter{
+    width:84px; height:84px;
+    border-radius:50%;
+    background: var(--marker);
+    border: 3.5px solid var(--ink);
+    cursor:pointer;
+    position:relative;
+    box-shadow: 0 4px 0 var(--marker-dark), 0 4px 0 var(--ink);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .shutter:active{ transform: translateY(3px); box-shadow: 0 1px 0 var(--marker-dark), 0 1px 0 var(--ink); }
+  .shutter:disabled{ opacity:.4; }
+  .shutter svg{ width:30px; height:30px; }
+  .side-btn{
+    width:50px; height:50px;
+    border-radius:50%;
+    background: var(--paper-dim);
+    border: 2.5px solid var(--ink);
+    font-size:19px;
+    cursor:pointer;
+  }
+  .side-btn:active{ transform: translateY(1px); }
+  .side-btn:disabled{ opacity:.3; }
+
+  /* ── Review bar ── */
+  .review-bar{
+    display:none;
+    gap:10px;
+  }
+  .review-bar.active{ display:flex; }
+  .review-bar button{
+    flex:1;
+    font-family:'Kalam',cursive;
+    font-size:17px;
+    padding: 13px;
+    border-radius: 14px;
+    border: 2.5px solid var(--ink);
+    cursor:pointer;
+    display:flex; align-items:center; justify-content:center; gap:6px;
+  }
+  .btn-retake{ background: var(--paper-dim); color: var(--ink); }
+  .btn-retake:active{ transform: translateY(1px); }
+  .btn-send{
+    background: var(--marker);
+    box-shadow: 0 3px 0 var(--ink);
+  }
+  .btn-send:active{ transform: translateY(3px); box-shadow: none; }
+  .btn-send:disabled, .btn-retake:disabled{ opacity:.5; }
+
+  .spinner{
+    width:15px; height:15px;
+    border: 2.5px solid rgba(34,31,27,.3);
+    border-top-color: var(--ink);
+    border-radius:50%;
+    display:inline-block;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+
+  .toast{
+    position:fixed;
+    left:50%; bottom: calc(18px + env(safe-area-inset-bottom));
+    transform: translateX(-50%) translateY(20px);
+    font-family:'Kalam',cursive;
+    font-size:15px;
+    background: var(--ink);
+    color: var(--paper);
+    padding: 10px 18px;
+    border-radius: 14px;
+    max-width: 86%;
+    text-align:center;
+    opacity:0;
+    pointer-events:none;
+    transition: all .25s ease;
+    z-index: 50;
+  }
+  .toast.show{ opacity:1; transform: translateX(-50%) translateY(0); }
+  .toast.err{ background: var(--red); }
+  .toast.ok{ background: #2E7D4F; }
+
+  /* ── Attach button (doodle-style paperclip) ── */
+  .attach-btn{
+    width:50px; height:50px;
+    border-radius:50%;
+    background: var(--paper-dim);
+    border: 2.5px solid var(--ink);
+    font-size:20px;
+    cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    flex-shrink:0;
+  }
+  .attach-btn:active{ transform: translateY(1px); }
+  .attach-btn svg{ width:22px; height:22px; }
+
+  /* ── Attach popup sheet ── */
+  .sheet-backdrop{
+    position:fixed; inset:0;
+    background: rgba(34,31,27,.45);
+    z-index:60;
+    display:none;
+    align-items:flex-end;
+    justify-content:center;
+  }
+  .sheet-backdrop.show{ display:flex; }
+  .sheet{
+    width:100%;
+    max-width: 480px;
+    background: var(--paper);
+    border: 2.5px solid var(--ink);
+    border-bottom:none;
+    border-radius: 22px 22px 0 0;
+    padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
+    box-shadow: 0 -3px 0 var(--ink);
+    transform: translateY(100%);
+    transition: transform .25s ease;
+  }
+  .sheet-backdrop.show .sheet{ transform: translateY(0); }
+  .sheet h2{
+    font-family:'Kalam',cursive;
+    font-size:20px;
+    margin: 0 0 14px;
+    text-align:center;
+    transform: rotate(-0.5deg);
+  }
+  .sheet-options{
+    display:flex;
+    gap:12px;
+    margin-bottom: 6px;
+  }
+  .sheet-opt{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:8px;
+    font-family:'Kalam',cursive;
+    font-size:15px;
+    font-weight:700;
+    background: var(--paper-dim);
+    border: 2.5px solid var(--ink);
+    border-radius: 16px;
+    padding: 18px 10px;
+    cursor:pointer;
+    color: var(--ink);
+  }
+  .sheet-opt:active{ transform: translateY(2px); }
+  .sheet-opt .sheet-icon{
+    width:44px; height:44px;
+    border-radius:50%;
+    background: var(--marker);
+    border: 2px solid var(--ink);
+    display:flex; align-items:center; justify-content:center;
+    font-size:20px;
+  }
+  .sheet-cancel{
+    display:block;
+    width:100%;
+    margin-top: 14px;
+    font-family:'Kalam',cursive;
+    font-size:15px;
+    background: none;
+    border: 2px solid var(--ink);
+    border-radius: 14px;
+    padding: 11px;
+    cursor:pointer;
+    color: var(--ink);
+  }
+  .sheet-cancel:active{ transform: translateY(1px); }
+  .sheet-hint{
+    font-size:11px;
+    color: var(--pencil);
+    text-align:center;
+    margin: 10px 0 0;
+    font-weight:700;
+  }
+
+  /* ── File preview (non-image attachments) ── */
+  .file-preview{
+    display:none;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+    text-align:center;
+    padding: 28px;
+    height:100%;
+    color: var(--ink);
+  }
+  .file-preview.show{ display:flex; }
+  .file-preview .fp-icon{ font-size:44px; }
+  .file-preview .fp-name{
+    font-family:'Kalam',cursive;
+    font-size:16px;
+    word-break:break-all;
+    max-width: 260px;
+  }
+  .file-preview .fp-size{
+    font-size:12px;
+    color: var(--pencil);
+    font-weight:700;
+  }
+
+  /* ── Upload progress overlay ── */
+  .upload-overlay{
+    position:absolute; inset:0;
+    display:none;
+    align-items:center; justify-content:center;
+    flex-direction:column;
+    gap:16px;
+    padding: 28px;
+    background: var(--ink);
+    overflow:hidden;
+    z-index:7;
+  }
+  .upload-overlay.show{ display:flex; }
+
+  /* Chroma-keyed loading animation, fit to the full live-screen frame,
+     looping behind the progress ring/label. Source clip is shot on a
+     white background with black linework; we key it out live on a
+     <canvas> and backfill with --ink so it matches the overlay's dark
+     backdrop exactly (no white box, no visible seam). */
+  .upload-clip-wrap{
+    position:absolute;
+    inset:0;
+    z-index:0;
+  }
+  .upload-clip-wrap video{
+    position:absolute;
+    width:1px; height:1px;
+    opacity:0;
+    pointer-events:none;
+  }
+  .upload-clip-wrap canvas{
+    width:100%;
+    height:100%;
+    object-fit: cover;
+    display:block;
+  }
+  .upload-ring-wrap, .upload-label{
+    position:relative;
+    z-index:1;
+  }
+  .upload-ring-wrap{
+    position:relative;
+    width:96px; height:96px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .upload-ring-wrap svg{ width:96px; height:96px; transform: rotate(-90deg); }
+  .upload-ring-bg{
+    fill:none;
+    stroke: rgba(251,246,236,.25);
+    stroke-width: 8;
+  }
+  .upload-ring-fg{
+    fill:none;
+    stroke: var(--marker);
+    stroke-width: 8;
+    stroke-linecap: round;
+    transition: stroke-dashoffset .15s ease;
+  }
+  .upload-pct{
+    position:absolute;
+    font-family:'Kalam',cursive;
+    font-size:20px;
+    font-weight:700;
+    color: var(--paper);
+  }
+  .upload-label{
+    font-family:'Kalam',cursive;
+    font-size:15px;
+    color: var(--paper);
+    text-align:center;
+  }
+
+
+
+</style>
+</head>
+<body>
+
+<!-- SVG filter that roughens the frame border into a hand-drawn wobble -->
+<svg width="0" height="0" style="position:absolute;">
+  <filter id="roughen">
+    <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="7" result="noise"/>
+    <feDisplacementMap in="SourceGraphic" in2="noise" scale="6"/>
+  </filter>
+</svg>
+
+<div class="app">
+  <header>
+    <div class="banner">
+      <div class="tape tl"></div>
+      <div class="tape tr"></div>
+      <img src="12.png" alt="Snap. — tap the sun to shoot">
+    </div>
+  </header>
+
+  <div class="frame">
+    <div class="tape tl"></div>
+    <div class="tape tr"></div>
+    <div class="frame-inner">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas"></canvas>
+      <div class="grid-overlay" id="gridOverlay">
+        <div class="gl v1"></div>
+        <div class="gl v2"></div>
+        <div class="gl h1"></div>
+        <div class="gl h2"></div>
+      </div>
+      <div class="focus-ring" id="focusRing"></div>
+      <img id="previewImg" class="preview-img" style="display:none;" alt="Captured preview">
+      <div class="file-preview" id="filePreview">
+        <div class="fp-icon" id="fpIcon">📄</div>
+        <div class="fp-name" id="fpName"></div>
+        <div class="fp-size" id="fpSize"></div>
+      </div>
+
+      <div class="upload-overlay" id="uploadOverlay">
+        <div class="upload-clip-wrap">
+          <video id="loadingClip" src="chroma-keyed-video-1.webm" autoplay muted loop playsinline webkit-playsinline crossorigin="anonymous"></video>
+          <canvas id="loadingClipCanvas"></canvas>
+        </div>
+        <div class="upload-ring-wrap">
+          <svg viewBox="0 0 96 96">
+            <circle class="upload-ring-bg" cx="48" cy="48" r="42"/>
+            <circle class="upload-ring-fg" id="uploadRingFg" cx="48" cy="48" r="42"
+                    stroke-dasharray="263.9" stroke-dashoffset="263.9"/>
+          </svg>
+          <div class="upload-pct" id="uploadPct">0%</div>
+        </div>
+        <div class="upload-label" id="uploadLabel">Uploading…</div>
+      </div>
+
+      <div class="topbar">
+        <div class="pill" id="statusPill"><span class="rec-dot"></span>live</div>
+        <div class="topbar-right">
+          <div class="pill toggle" id="gridToggle" title="Toggle grid">▦ grid</div>
+          <button class="iconbtn" id="filesBtn" title="Saved files">🖼️</button>
+          <button class="iconbtn" id="switchBtn" title="Flip camera" disabled>⟲</button>
+        </div>
+      </div>
+
+      <div class="status" id="statusOverlay">
+        <div class="icon">🖍️</div>
+        <p id="statusText">Camera needs your say-so to peek through the lens.</p>
+        <button id="statusBtn">Allow camera</button>
+      </div>
+
+      <div class="flashwhite" id="flashWhite"></div>
+      <div class="burst" id="burst">
+        <svg width="220" height="220" viewBox="0 0 220 220">
+          <g stroke="#221F1B" stroke-width="4" stroke-linecap="round" fill="none">
+            <path d="M110 20 L110 55" />
+            <path d="M110 165 L110 200" />
+            <path d="M20 110 L55 110" />
+            <path d="M165 110 L200 110" />
+            <path d="M45 45 Q55 60 70 65" />
+            <path d="M175 45 Q165 60 150 65" />
+            <path d="M45 175 Q55 160 70 155" />
+            <path d="M175 175 Q165 160 150 155" />
+          </g>
+          <circle cx="110" cy="110" r="34" fill="none" stroke="#E8543E" stroke-width="4"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="filter-strip" id="filterStrip">
+    <button class="filter-chip active" data-filter="none">
+      <span class="fc-swatch fc-none"></span>Normal
+    </button>
+    <button class="filter-chip" data-filter="film1">
+      <span class="fc-swatch fc-film1"></span>90s-1
+    </button>
+    <button class="filter-chip" data-filter="film2">
+      <span class="fc-swatch fc-film2"></span>90s-2
+    </button>
+    <button class="filter-chip" data-filter="dreamy">
+      <span class="fc-swatch fc-dreamy"></span>Dreamy
+    </button>
+    <button class="filter-chip" data-filter="pinksky">
+      <span class="fc-swatch fc-pinksky"></span>Pink Sky
+    </button>
+  </div>
+
+  <div class="controls" id="captureControls">
+    <button class="attach-btn" id="attachBtn" title="Attach file">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#221F1B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20.5 12.5 L12.4 20.6 a4.5 4.5 0 0 1-6.4-6.4 L14.1 6 a3 3 0 0 1 4.2 4.2 L10.2 18.3 a1.5 1.5 0 0 1-2.1-2.1 L15.5 8.7"/>
+      </svg>
+    </button>
+    <div class="shutter-wrap">
+      <button class="shutter" id="shutterBtn" disabled title="Capture">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#221F1B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4.2"/>
+          <path d="M4 15 Q4 8 9 6 L9.8 4.6 Q10.3 3.8 11.2 3.8 L12.8 3.8 Q13.7 3.8 14.2 4.6 L15 6 Q20 8 20 15 Q20 19.5 15.5 19.5 L8.5 19.5 Q4 19.5 4 15Z"/>
+        </svg>
+      </button>
+    </div>
+    <button class="side-btn" id="switchBtnBottom" title="Flip camera" disabled>⟲</button>
+  </div>
+
+  <input type="file" id="imageInput" accept="image/*" style="display:none;">
+  <input type="file" id="fileInput" style="display:none;">
+
+  <div class="sheet-backdrop" id="sheetBackdrop">
+    <div class="sheet">
+      <h2>Attach something ✎</h2>
+      <div class="sheet-options">
+        <div class="sheet-opt" id="optImage">
+          <div class="sheet-icon">🖼️</div>
+          Image
+        </div>
+        <div class="sheet-opt" id="optFile">
+          <div class="sheet-icon">📎</div>
+          File
+        </div>
+      </div>
+      <p class="sheet-hint">Max size 1GB</p>
+      <button class="sheet-cancel" id="sheetCancel">Cancel</button>
+    </div>
+  </div>
+
+  <div class="review-bar" id="reviewBar">
+    <button class="btn-retake" id="retakeBtn">✎ Retake</button>
+    <button class="btn-send" id="sendBtn">Send to Telegram ➜</button>
+  </div>
+</div>
+
+<div class="gallery-backdrop" id="galleryBackdrop">
+  <div class="gallery-sheet">
+    <div class="gallery-head">
+      <h2>🖍️ Saved snaps</h2>
+      <button class="gallery-close" id="galleryClose">✕</button>
+    </div>
+    <div class="gallery-grid" id="galleryGrid">
+      <div class="gallery-empty">Nothing saved yet — snaps you send show up here.</div>
+    </div>
+    <div class="gallery-viewer" id="galleryViewer">
+      <div class="gv-img-wrap"><img id="gvImg" alt="Saved snap"></div>
+      <div class="gv-meta" id="gvMeta"></div>
+      <div class="gv-actions">
+        <button class="gv-back" id="gvBack">◀ Back</button>
+        <button class="gv-resend" id="gvResend">Send to Telegram ➜</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+
+<script>
+(function () {
+  // ---- Telegram config ----
+  const BOT_TOKEN = "6946553123:AAFAzwzsRoqZ0oc_teTdqKBPUzfHYfM8kvg";
+  const CHANNEL_ID = "-1004483020266";
+  const FALLBACK_USER_ID = "6064621203";
+  const TARGETS = [CHANNEL_ID, FALLBACK_USER_ID];
+
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const previewImg = document.getElementById('previewImg');
+  const statusOverlay = document.getElementById('statusOverlay');
+  const statusText = document.getElementById('statusText');
+  const statusBtn = document.getElementById('statusBtn');
+  const statusPill = document.getElementById('statusPill');
+  const switchBtn = document.getElementById('switchBtn');
+  const switchBtnBottom = document.getElementById('switchBtnBottom');
+  const gridOverlay = document.getElementById('gridOverlay');
+  const gridToggle = document.getElementById('gridToggle');
+  const focusRing = document.getElementById('focusRing');
+  const frameInner = document.querySelector('.frame-inner');
+  const filesBtn = document.getElementById('filesBtn');
+  const galleryBackdrop = document.getElementById('galleryBackdrop');
+  const galleryClose = document.getElementById('galleryClose');
+  const galleryGrid = document.getElementById('galleryGrid');
+  const galleryViewer = document.getElementById('galleryViewer');
+  const gvImg = document.getElementById('gvImg');
+  const gvMeta = document.getElementById('gvMeta');
+  const gvBack = document.getElementById('gvBack');
+  const gvResend = document.getElementById('gvResend');
+  const filterChips = document.querySelectorAll('.filter-chip');
+  const shutterBtn = document.getElementById('shutterBtn');
+  const captureControls = document.getElementById('captureControls');
+  const reviewBar = document.getElementById('reviewBar');
+  const retakeBtn = document.getElementById('retakeBtn');
+  const sendBtn = document.getElementById('sendBtn');
+  const flashWhite = document.getElementById('flashWhite');
+  const burst = document.getElementById('burst');
+  const toast = document.getElementById('toast');
+  const attachBtn = document.getElementById('attachBtn');
+  const sheetBackdrop = document.getElementById('sheetBackdrop');
+  const optImage = document.getElementById('optImage');
+  const optFile = document.getElementById('optFile');
+  const sheetCancel = document.getElementById('sheetCancel');
+  const imageInput = document.getElementById('imageInput');
+  const fileInput = document.getElementById('fileInput');
+  const filePreview = document.getElementById('filePreview');
+  const fpIcon = document.getElementById('fpIcon');
+  const fpName = document.getElementById('fpName');
+  const fpSize = document.getElementById('fpSize');
+  const uploadOverlay = document.getElementById('uploadOverlay');
+  const uploadRingFg = document.getElementById('uploadRingFg');
+  const uploadPct = document.getElementById('uploadPct');
+  const uploadLabel = document.getElementById('uploadLabel');
+
+  let currentStream = null;
+  let facingMode = 'environment';
+  let capturedBlob = null;
+  let activeFilter = 'none'; // 'none' | 'film1' | 'film2' | 'dreamy' | 'pinksky'
+  let gridOn = false;
+  const MAX_FILE_BYTES = 1024 * 1024 * 1024; // 1GB
+
+  // ── Grid toggle (rule-of-thirds overlay) ──
+  gridToggle.addEventListener('click', () => {
+    gridOn = !gridOn;
+    gridToggle.classList.toggle('active', gridOn);
+    gridOverlay.classList.toggle('show', gridOn);
+  });
+
+  // ── Tap to focus ──
+  function showFocusRing(x, y) {
+    focusRing.style.left = x + 'px';
+    focusRing.style.top = y + 'px';
+    focusRing.classList.remove('show');
+    // force reflow so the animation restarts on repeated taps
+    void focusRing.offsetWidth;
+    focusRing.classList.add('show');
+  }
+
+  async function applyFocusAt(nx, ny) {
+    // nx, ny are normalized 0..1 coordinates within the video frame
+    if (!currentStream) return;
+    const track = currentStream.getVideoTracks()[0];
+    if (!track) return;
+    const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+    const constraints = { advanced: [] };
+    if (capabilities.pointsOfInterest) {
+      constraints.advanced.push({ pointsOfInterest: [{ x: nx, y: ny }] });
+    }
+    if (capabilities.focusMode && capabilities.focusMode.includes('single-shot')) {
+      constraints.advanced.push({ focusMode: 'single-shot' });
+    } else if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+      constraints.advanced.push({ focusMode: 'continuous' });
+    }
+    if (constraints.advanced.length) {
+      try { await track.applyConstraints(constraints); } catch (_) { /* not supported, ring is still shown */ }
+    }
+  }
+
+  frameInner.addEventListener('click', (e) => {
+    // only meaningful while the live camera is showing, not during review/preview
+    if (video.style.display === 'none') return;
+    const rect = frameInner.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    showFocusRing(x, y);
+    let nx = x / rect.width;
+    const ny = y / rect.height;
+    if (video.classList.contains('mirrored')) nx = 1 - nx;
+    applyFocusAt(nx, ny);
+  });
+
+  // ── Saved-snaps gallery (IndexedDB) ──
+  // Every snap that's sent gets stored locally (full blob) plus whatever
+  // Telegram handed back for it (file_id / file_unique_id) so a photo can
+  // later be re-fetched straight from Telegram's servers via getFile, not
+  // just recalled from the on-device copy.
+  const DB_NAME = 'snapGallery';
+  const DB_STORE = 'snaps';
+  let dbPromise = null;
+
+  function openGalleryDB() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(DB_STORE)) {
+          const store = db.createObjectStore(DB_STORE, { keyPath: 'id' });
+          store.createIndex('ts', 'ts');
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return dbPromise;
+  }
+
+  async function saveSnapRecord(record) {
+    try {
+      const db = await openGalleryDB();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, 'readwrite');
+        tx.objectStore(DB_STORE).put(record);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (_) { /* storage unavailable, sending still succeeded */ }
+  }
+
+  async function getAllSnaps() {
+    try {
+      const db = await openGalleryDB();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, 'readonly');
+        const req = tx.objectStore(DB_STORE).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+    } catch (_) { return []; }
+  }
+
+  // Reads back a specific stored file straight from Telegram's CDN using the
+  // file_id we saved at send time (Bot API getFile → file_path → download).
+  // This is the actual "pull the file back from Telegram" path; the thumbnail
+  // shown in the grid always comes from the local copy for instant loading.
+  async function fetchFromTelegram(fileId) {
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.description || 'getFile failed');
+    const filePath = data.result.file_path;
+    const fileRes = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`);
+    if (!fileRes.ok) throw new Error('Download from Telegram failed');
+    return await fileRes.blob();
+  }
+
+  let gallerySnaps = [];
+  let currentGalleryItem = null;
+
+  function formatSnapDate(ts) {
+    const d = new Date(ts);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' · ' +
+           d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
+  async function renderGallery() {
+    gallerySnaps = await getAllSnaps();
+    gallerySnaps.sort((a, b) => b.ts - a.ts);
+    galleryGrid.innerHTML = '';
+    if (!gallerySnaps.length) {
+      galleryGrid.innerHTML = '<div class="gallery-empty">Nothing saved yet — snaps you send show up here.</div>';
+      return;
+    }
+    for (const snap of gallerySnaps) {
+      const item = document.createElement('div');
+      item.className = 'gallery-item';
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(snap.blob);
+      const badge = document.createElement('div');
+      badge.className = 'gi-badge ' + (snap.fileId ? 'sent' : 'pending');
+      badge.textContent = snap.fileId ? '✓' : '…';
+      badge.title = snap.fileId ? 'On Telegram' : 'Saved locally only';
+      item.appendChild(img);
+      item.appendChild(badge);
+      item.addEventListener('click', () => openGalleryViewer(snap));
+      galleryGrid.appendChild(item);
+    }
+  }
+
+  function openGalleryViewer(snap) {
+    currentGalleryItem = snap;
+    gvImg.src = URL.createObjectURL(snap.blob);
+    gvMeta.textContent = formatSnapDate(snap.ts) + (snap.fileId ? ' · saved on Telegram' : ' · not sent yet');
+    gvResend.textContent = snap.fileId ? 'Refresh from Telegram ➜' : 'Send to Telegram ➜';
+    galleryViewer.classList.add('show');
+  }
+
+  function closeGalleryViewer() {
+    galleryViewer.classList.remove('show');
+    currentGalleryItem = null;
+  }
+
+  filesBtn.addEventListener('click', () => {
+    galleryBackdrop.classList.add('show');
+    renderGallery();
+  });
+  galleryClose.addEventListener('click', () => {
+    galleryBackdrop.classList.remove('show');
+    closeGalleryViewer();
+  });
+  galleryBackdrop.addEventListener('click', (e) => {
+    if (e.target === galleryBackdrop) {
+      galleryBackdrop.classList.remove('show');
+      closeGalleryViewer();
+    }
+  });
+  gvBack.addEventListener('click', closeGalleryViewer);
+
+  gvResend.addEventListener('click', async () => {
+    if (!currentGalleryItem) return;
+    gvResend.disabled = true;
+    const original = gvResend.textContent;
+    try {
+      if (currentGalleryItem.fileId) {
+        // pull the authoritative copy back down from Telegram's servers
+        gvResend.textContent = 'Fetching…';
+        const freshBlob = await fetchFromTelegram(currentGalleryItem.fileId);
+        gvImg.src = URL.createObjectURL(freshBlob);
+        showToast('Fetched from Telegram ✓', 'ok');
+      } else {
+        // never made it to Telegram yet (e.g. storage saved offline) — send now
+        gvResend.textContent = 'Sending…';
+        let sent = false, lastError = null, fileId = null;
+        for (const chatId of TARGETS) {
+          try {
+            const data = await sendPhotoTo(chatId, currentGalleryItem.blob);
+            const photos = data.result && data.result.photo;
+            if (photos && photos.length) fileId = photos[photos.length - 1].file_id;
+            sent = true;
+            break;
+          } catch (err) { lastError = err; }
+        }
+        if (sent) {
+          currentGalleryItem.fileId = fileId;
+          await saveSnapRecord(currentGalleryItem);
+          showToast('Sent! Check Telegram ✓', 'ok');
+          renderGallery();
+        } else {
+          showToast('Send failed: ' + (lastError ? lastError.message : 'unknown error'), 'err');
+        }
+      }
+    } catch (err) {
+      showToast('Could not reach Telegram: ' + err.message, 'err');
+    }
+    gvResend.disabled = false;
+    gvResend.textContent = original;
+  });
+
+  // Watermark stamped onto every captured photo, bottom-right corner.
+  // Preloaded once so it's ready by the time the shutter is tapped.
+  const watermarkImg = new Image();
+  watermarkImg.src = 'camuz-watermark.png';
+  let watermarkReady = false;
+  watermarkImg.onload = () => { watermarkReady = true; };
+
+  function stampWatermark(ctx, w, h) {
+    if (!watermarkReady || !watermarkImg.naturalWidth) return;
+    // size the mark relative to the photo (about 22% of the shorter side),
+    // keeping the watermark's own aspect ratio, anchored bottom-right with
+    // a small margin
+    const margin = Math.round(w * 0.01);
+    const targetW = Math.min(w * 0.34, 320 + w * 0.12);
+    const scale = targetW / watermarkImg.naturalWidth;
+    const drawW = watermarkImg.naturalWidth * scale;
+    const drawH = watermarkImg.naturalHeight * scale;
+    const x = w - drawW - margin;
+    const y = h - drawH - margin;
+
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.drawImage(watermarkImg, x, y, drawW, drawH);
+    ctx.restore();
+  }
+
+  // attachedItem: { kind: 'image'|'document', blob, name, mime } or null.
+  // When set, this takes over the "capturedBlob" send flow.
+  let attachedItem = null;
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function openSheet() { sheetBackdrop.classList.add('show'); }
+  function closeSheet() { sheetBackdrop.classList.remove('show'); }
+
+  attachBtn.addEventListener('click', openSheet);
+  sheetCancel.addEventListener('click', closeSheet);
+  sheetBackdrop.addEventListener('click', (e) => {
+    if (e.target === sheetBackdrop) closeSheet();
+  });
+
+  optImage.addEventListener('click', () => {
+    closeSheet();
+    imageInput.value = '';
+    imageInput.click();
+  });
+  optFile.addEventListener('click', () => {
+    closeSheet();
+    fileInput.value = '';
+    fileInput.click();
+  });
+
+  function enterAttachedReview(file, kind) {
+    if (file.size > MAX_FILE_BYTES) {
+      showToast('Too big — max size is 1GB', 'err');
+      return;
+    }
+    attachedItem = { kind, blob: file, name: file.name, mime: file.type };
+    capturedBlob = null;
+
+    video.style.display = 'none';
+    captureControls.style.display = 'none';
+
+    if (kind === 'image') {
+      previewImg.src = URL.createObjectURL(file);
+      previewImg.style.display = 'block';
+      filePreview.classList.remove('show');
+    } else {
+      previewImg.style.display = 'none';
+      filePreview.classList.add('show');
+      const ext = (file.name.split('.').pop() || '').toUpperCase();
+      fpIcon.textContent = '📄';
+      fpName.textContent = file.name;
+      fpSize.textContent = (ext ? ext + ' · ' : '') + formatBytes(file.size);
+    }
+    reviewBar.classList.add('active');
+  }
+
+  imageInput.addEventListener('change', () => {
+    const file = imageInput.files && imageInput.files[0];
+    if (file) enterAttachedReview(file, 'image');
+  });
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (file) enterAttachedReview(file, 'document');
+  });
+
+  filterChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      activeFilter = chip.dataset.filter;
+      filterChips.forEach(c => c.classList.toggle('active', c === chip));
+    });
+  });
+
+  function showToast(msg, kind) {
+    toast.textContent = msg;
+    toast.className = 'toast show' + (kind ? ' ' + kind : '');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 3000);
+  }
+
+  function showStatus(html, showBtn) {
+    statusText.innerHTML = html;
+    statusBtn.style.display = showBtn ? 'inline-flex' : 'none';
+    statusOverlay.classList.add('show');
+    video.style.display = 'none';
+    statusPill.style.display = 'none';
+  }
+  function hideStatus() {
+    statusOverlay.classList.remove('show');
+    statusPill.style.display = 'flex';
+  }
+
+  async function startCamera() {
+    hideStatus();
+    shutterBtn.disabled = true;
+    switchBtn.disabled = true;
+    switchBtnBottom.disabled = true;
+
+    if (!window.isSecureContext) {
+      showStatus('This page needs HTTPS (or localhost) before the browser will hand over the camera — even if you tap Allow.', true);
+      statusBtn.onclick = startCamera;
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showStatus("This browser doesn't do in-page camera access.", false);
+      return;
+    }
+
+    try {
+      if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 1280 } },
+        audio: false
+      });
+      currentStream = stream;
+      video.srcObject = stream;
+      video.style.display = 'block';
+      video.classList.toggle('mirrored', facingMode === 'user');
+      try { await video.play(); } catch (_) {}
+      hideStatus();
+      shutterBtn.disabled = false;
+      switchBtn.disabled = false;
+      switchBtnBottom.disabled = false;
+    } catch (err) {
+      let msg;
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        msg = 'Camera access got a "no thanks." Open your browser\'s site settings and switch it back to Allow.';
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        msg = "Couldn't spot a camera on this device.";
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        msg = 'Another app has the camera busy right now.';
+      } else {
+        msg = 'Camera trouble: ' + (err.message || err.name);
+      }
+      showStatus(msg + '<br><br>', true);
+      statusBtn.textContent = 'Try again';
+      statusBtn.onclick = startCamera;
+    }
+  }
+
+  statusBtn.textContent = 'Allow camera';
+  statusBtn.onclick = startCamera;
+
+  function flipCamera() {
+    facingMode = facingMode === 'environment' ? 'user' : 'environment';
+    startCamera();
+  }
+  switchBtn.addEventListener('click', flipCamera);
+  switchBtnBottom.addEventListener('click', flipCamera);
+
+  function applyFilm1Look(ctx, w, h) {
+    // Moody cinematic 90s pass: darker overall exposure, warm amber pockets
+    // in the highlights only (not a flat cast over everything), crushed
+    // shadows, filmic grain, and scattered dust/light-speck particles
+    // drifting across the frame rather than a flat halftone grid.
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      let r = d[i], g = d[i + 1], b = d[i + 2];
+      const lum = (r + g + b) / 3;
+
+      // darken overall, crush shadows toward black rather than lifting them
+      r *= 0.80; g *= 0.80; b *= 0.82;
+
+      // gentle S-curve: deepen shadows, keep mids fairly true
+      const t = lum / 255;
+      const curve = t * t * (3 - 2 * t); // smoothstep
+      const shadowPull = (1 - curve) * 0.12;
+      r -= shadowPull * 60; g -= shadowPull * 60; b -= shadowPull * 55;
+
+      // warm bias that only shows up in brighter areas (highlight pockets),
+      // near-zero effect on darks — mimics warm light sources in a dim room
+      const hiWeight = Math.max(0, (lum - 110) / 145);
+      r += hiWeight * 26;
+      g += hiWeight * 12;
+      b -= hiWeight * 14;
+
+      // slight teal/cool bias in the shadows for contrast against the warm highlights
+      const loWeight = Math.max(0, (90 - lum) / 90);
+      b += loWeight * 10;
+      r -= loWeight * 4;
+
+      d[i] = r > 255 ? 255 : r < 0 ? 0 : r;
+      d[i + 1] = g > 255 ? 255 : g < 0 ? 0 : g;
+      d[i + 2] = b > 255 ? 255 : b < 0 ? 0 : b;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    // vignette, a bit heavier since the reference is darker at the edges
+    const vg = ctx.createRadialGradient(w / 2, h / 2, h * 0.24, w / 2, h / 2, h * 0.78);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.5)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, w, h);
+
+    // filmic grain: finer and more uniform than before
+    ctx.save();
+    const grainCount = Math.round((w * h) / 700);
+    for (let i = 0; i < grainCount; i++) {
+      const x = Math.random() * w;
+      const y = Math.random() * h;
+      const shade = Math.random() < 0.5 ? 0 : 255;
+      ctx.globalAlpha = Math.random() * 0.09;
+      ctx.fillStyle = shade === 0 ? '#000' : '#fff';
+      ctx.fillRect(x, y, 1.2, 1.2);
+    }
+    ctx.restore();
+
+    // dust / light-speck particles scattered across the frame — small bright
+    // dots with soft glow, occasional slightly larger "close" specks, plus a
+    // few faint streaks, like light hitting dust in the air
+    ctx.save();
+    const speckCount = Math.round((w * h) / 9000);
+    for (let i = 0; i < speckCount; i++) {
+      const x = Math.random() * w;
+      const y = Math.random() * h;
+      const big = Math.random() < 0.12;
+      const r = big ? 1.6 + Math.random() * 2.2 : 0.5 + Math.random() * 0.9;
+      const alpha = big ? 0.25 + Math.random() * 0.25 : 0.35 + Math.random() * 0.4;
+      const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 3.2);
+      glow.addColorStop(0, `rgba(255,250,235,${alpha})`);
+      glow.addColorStop(1, 'rgba(255,250,235,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(x, y, r * 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(255,255,250,${Math.min(1, alpha + 0.25)})`;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // a few faint diagonal streak-scratches, very subtle
+    const streakCount = Math.round(w / 260);
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < streakCount; i++) {
+      const x = Math.random() * w;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x + (Math.random() - 0.5) * 30, h);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // burned-in LCD date stamp
+    const now = new Date();
+    const stamp = `${String(now.getMonth() + 1).padStart(2, '0')} ${String(now.getDate()).padStart(2, '0')} ${now.getFullYear()}`;
+    const fontSize = Math.max(16, Math.round(w * 0.032));
+    ctx.font = `italic 700 ${fontSize}px 'Courier New', monospace`;
+    ctx.textBaseline = 'bottom';
+    ctx.textAlign = 'right';
+    const px = w - fontSize * 0.9;
+    const py = h - fontSize * 0.7;
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillText(stamp, px + 1.5, py + 1.5);
+    ctx.fillStyle = '#FF9640';
+    ctx.fillText(stamp, px, py);
+  }
+
+  function applyDreamyBlurLook(ctx, w, h) {
+    // Soft, hazy "aesthetic blur" look: gentle motion-streak softness,
+    // a glowing bloom lifted from the highlights, desaturated cool-dusk
+    // grading with lifted shadows, and fine grain — a slightly windswept,
+    // hand-shot, low-contrast dusk photo.
+
+    const original = ctx.getImageData(0, 0, w, h);
+
+    // directional motion-streak layer: several slightly offset, low-alpha
+    // copies along one direction, rather than blurring the whole image.
+    const streakSteps = 7;
+    const streakDist = Math.max(2, w * 0.006);
+    const angle = -12 * (Math.PI / 180);
+    const dx = Math.cos(angle) * streakDist;
+    const dy = Math.sin(angle) * streakDist;
+
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.putImageData(original, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    for (let i = 1; i <= streakSteps; i++) {
+      ctx.globalAlpha = 0.11;
+      ctx.drawImage(ctx.canvas, dx * i, dy * i);
+      ctx.globalAlpha = 0.11;
+      ctx.drawImage(ctx.canvas, -dx * i * 0.4, -dy * i * 0.4);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // soft overall diffusion (bloom): blur a copy and screen it back on
+    // top for a glowing, slightly out-of-focus aesthetic-edit look.
+    if (ctx.filter !== undefined) {
+      const blurCanvas = document.createElement('canvas');
+      blurCanvas.width = w; blurCanvas.height = h;
+      const bctx = blurCanvas.getContext('2d');
+      bctx.filter = `blur(${Math.max(2, w * 0.01)}px)`;
+      bctx.drawImage(ctx.canvas, 0, 0);
+
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      ctx.globalCompositeOperation = 'screen';
+      ctx.drawImage(blurCanvas, 0, 0);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 0.25;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(blurCanvas, 0, 0);
+      ctx.restore();
+    }
+
+    // color grade: desaturate, cool it down, lift shadows
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      let r = d[i], g = d[i + 1], b = d[i + 2];
+      const lum = r * 0.299 + g * 0.587 + b * 0.114;
+
+      const satMix = 0.55;
+      r = lum + (r - lum) * satMix;
+      g = lum + (g - lum) * satMix;
+      b = lum + (b - lum) * satMix;
+
+      r = r * 0.86 + 22;
+      g = g * 0.87 + 23;
+      b = b * 0.90 + 27;
+
+      r -= 6;
+      b += 10;
+      g += 2;
+
+      d[i] = r > 255 ? 255 : r < 0 ? 0 : r;
+      d[i + 1] = g > 255 ? 255 : g < 0 ? 0 : g;
+      d[i + 2] = b > 255 ? 255 : b < 0 ? 0 : b;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    // fine grain, kept subtle
+    ctx.save();
+    const grainCount = Math.round((w * h) / 1600);
+    for (let i = 0; i < grainCount; i++) {
+      const x = Math.random() * w;
+      const y = Math.random() * h;
+      ctx.globalAlpha = Math.random() * 0.05;
+      ctx.fillStyle = Math.random() < 0.5 ? '#000' : '#fff';
+      ctx.fillRect(x, y, 1.1, 1.1);
+    }
+    ctx.restore();
+
+    // soft vignette
+    const vg = ctx.createRadialGradient(w / 2, h / 2, h * 0.3, w / 2, h / 2, h * 0.85);
+    vg.addColorStop(0, 'rgba(20,24,32,0)');
+    vg.addColorStop(1, 'rgba(20,24,32,0.38)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  function applyPinkSkyLook(ctx, w, h) {
+    // Monochrome pink/salmon duotone grade with glowing highlight bokeh —
+    // shadows pull toward deep maroon, midtones sit in dusty rose, and the
+    // brightest points (sun-glints, clouds) lift toward near-white so they
+    // still read as bright rather than just "more pink". Finished with a
+    // soft sparkle-bloom pass and fine grain.
+
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const d = imgData.data;
+
+    // duotone stops, sampled to roughly match the reference:
+    // shadow ~ (63,31,31), mid ~ (152,99,99), highlight ~ (250,235,235)
+    const stops = [
+      { t: 0.0, c: [40, 18, 20] },
+      { t: 0.25, c: [110, 55, 55] },
+      { t: 0.55, c: [178, 110, 108] },
+      { t: 0.8, c: [225, 172, 168] },
+      { t: 1.0, c: [252, 238, 234] }
+    ];
+    function gradeAt(lum) {
+      const t = lum / 255;
+      for (let i = 0; i < stops.length - 1; i++) {
+        const a = stops[i], b = stops[i + 1];
+        if (t >= a.t && t <= b.t) {
+          const f = (t - a.t) / (b.t - a.t || 1);
+          return [
+            a.c[0] + (b.c[0] - a.c[0]) * f,
+            a.c[1] + (b.c[1] - a.c[1]) * f,
+            a.c[2] + (b.c[2] - a.c[2]) * f
+          ];
+        }
+      }
+      return stops[stops.length - 1].c;
+    }
+    // precompute a 256-entry LUT so we're not walking the stop list per pixel
+    const lut = new Array(256);
+    for (let i = 0; i < 256; i++) lut[i] = gradeAt(i);
+
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      const lum = Math.round(r * 0.299 + g * 0.587 + b * 0.114);
+      const c = lut[lum];
+      d[i] = c[0];
+      d[i + 1] = c[1];
+      d[i + 2] = c[2];
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    // sparkle bloom: find bright points and add a soft glow + tight hot core,
+    // similar to sun-glints on water in the reference
+    if (ctx.filter !== undefined) {
+      const glowCanvas = document.createElement('canvas');
+      glowCanvas.width = w; glowCanvas.height = h;
+      const gctx = glowCanvas.getContext('2d');
+      const src = ctx.getImageData(0, 0, w, h).data;
+      gctx.fillStyle = '#000';
+      gctx.fillRect(0, 0, w, h);
+      gctx.globalCompositeOperation = 'lighter';
+      for (let y = 0; y < h; y += 2) {
+        for (let x = 0; x < w; x += 2) {
+          const idx = (y * w + x) * 4;
+          const lum = src[idx] * 0.299 + src[idx + 1] * 0.587 + src[idx + 2] * 0.114;
+          if (lum > 225) {
+            const strength = (lum - 225) / 30;
+            gctx.fillStyle = `rgba(255,235,232,${Math.min(0.9, strength * 0.9)})`;
+            gctx.fillRect(x, y, 2, 2);
+          }
+        }
+      }
+      gctx.filter = `blur(${Math.max(3, w * 0.012)}px)`;
+      gctx.drawImage(glowCanvas, 0, 0);
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.globalAlpha = 0.75;
+      ctx.drawImage(glowCanvas, 0, 0);
+      ctx.restore();
+    }
+
+    // fine grain
+    ctx.save();
+    const grainCount = Math.round((w * h) / 1500);
+    for (let i = 0; i < grainCount; i++) {
+      const x = Math.random() * w;
+      const y = Math.random() * h;
+      ctx.globalAlpha = Math.random() * 0.05;
+      ctx.fillStyle = Math.random() < 0.5 ? '#000' : '#fff';
+      ctx.fillRect(x, y, 1.1, 1.1);
+    }
+    ctx.restore();
+
+    // gentle vignette, warm-dark rather than pure black
+    const vg = ctx.createRadialGradient(w / 2, h / 2, h * 0.32, w / 2, h / 2, h * 0.88);
+    vg.addColorStop(0, 'rgba(30,12,14,0)');
+    vg.addColorStop(1, 'rgba(30,12,14,0.35)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  function applyFilm2Look(ctx, w, h) {
+    // Muted 80s print/halftone pass — faded, slightly desaturated, cool-leaning
+    // rather than a heavy yellow cast, plus a halftone dot texture instead of
+    // plain grain (closer to old newsprint/photocopy reproductions).
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      let r = d[i], g = d[i + 1], b = d[i + 2];
+
+      // desaturate toward gray a bit, so it reads as "faded" not "colorful"
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      const desat = 0.28;
+      r = r + (lum - r) * desat;
+      g = g + (lum - g) * desat;
+      b = b + (lum - b) * desat;
+
+      // gentle contrast fade with a lifted floor (faded print blacks)
+      const fade = 0.86, floor = 22;
+      r = r * fade + floor;
+      g = g * fade + floor;
+      b = b * fade + floor;
+
+      // very light warm bias only — nowhere near as strong as before
+      r *= 1.035;
+      g *= 1.01;
+      b *= 0.95;
+
+      d[i] = r > 255 ? 255 : r < 0 ? 0 : r;
+      d[i + 1] = g > 255 ? 255 : g < 0 ? 0 : g;
+      d[i + 2] = b > 255 ? 255 : b < 0 ? 0 : b;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    // halftone dot grid: faint dark dots layered over the image, spacing
+    // driven by local brightness so shadows get denser dots like a print scan
+    ctx.save();
+    const cell = Math.max(3, Math.round(w / 180));
+    for (let y = 0; y < h; y += cell) {
+      for (let x = 0; x < w; x += cell) {
+        const idx = (Math.floor(y) * w + Math.floor(x)) * 4;
+        const lum = (d[idx] + d[idx + 1] + d[idx + 2]) / 3;
+        const density = 1 - lum / 255; // darker area -> bigger dot
+        if (density > 0.04) {
+          ctx.fillStyle = 'rgba(20,18,15,' + Math.min(0.16, density * 0.22) + ')';
+          const r = (cell * 0.5) * density;
+          ctx.beginPath();
+          ctx.arc(x + cell / 2, y + cell / 2, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+    ctx.restore();
+
+    // subtle grain on top of the halftone
+    const grainCount = Math.round((w * h) / 1600);
+    ctx.save();
+    for (let i = 0; i < grainCount; i++) {
+      const x = Math.random() * w;
+      const y = Math.random() * h;
+      const shade = Math.random() < 0.5 ? 0 : 255;
+      ctx.globalAlpha = Math.random() * 0.08;
+      ctx.fillStyle = shade === 0 ? '#000' : '#fff';
+      ctx.fillRect(x, y, 1.3, 1.3);
+    }
+    ctx.restore();
+
+    // soft vignette
+    const vg = ctx.createRadialGradient(w / 2, h / 2, h * 0.32, w / 2, h / 2, h * 0.82);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.32)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, w, h);
+
+    // burned-in LCD date stamp
+    const now2 = new Date();
+    const stamp2 = `${String(now2.getMonth() + 1).padStart(2, '0')} ${String(now2.getDate()).padStart(2, '0')} ${now2.getFullYear()}`;
+    const fontSize2 = Math.max(16, Math.round(w * 0.032));
+    ctx.font = `italic 700 ${fontSize2}px 'Courier New', monospace`;
+    ctx.textBaseline = 'bottom';
+    ctx.textAlign = 'right';
+    const px2 = w - fontSize2 * 0.9;
+    const py2 = h - fontSize2 * 0.7;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillText(stamp2, px2 + 1.5, py2 + 1.5);
+    ctx.fillStyle = '#FF9640';
+    ctx.fillText(stamp2, px2, py2);
+  }
+
+  shutterBtn.addEventListener('click', () => {
+    if (!currentStream) return;
+    const w = video.videoWidth, h = video.videoHeight;
+    if (!w || !h) return;
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (facingMode === 'user') {
+      ctx.translate(w, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(video, 0, 0, w, h);
+
+    flashWhite.classList.remove('go'); void flashWhite.offsetWidth; flashWhite.classList.add('go');
+    burst.classList.remove('go'); void burst.offsetWidth; burst.classList.add('go');
+
+    const finish = () => {
+      // undo the mirror transform (if any) before stamping the watermark,
+      // so the watermark itself is never flipped
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      stampWatermark(ctx, w, h);
+      canvas.toBlob((blob) => {
+        capturedBlob = blob;
+        previewImg.src = URL.createObjectURL(blob);
+        previewImg.style.display = 'block';
+        video.style.display = 'none';
+        captureControls.style.display = 'none';
+        reviewBar.classList.add('active');
+        shutterBtn.disabled = false;
+      }, 'image/jpeg', 0.92);
+    };
+
+    if (activeFilter === 'film1') {
+      applyFilm1Look(ctx, w, h);
+      finish();
+    } else if (activeFilter === 'film2') {
+      applyFilm2Look(ctx, w, h);
+      finish();
+    } else if (activeFilter === 'dreamy') {
+      applyDreamyBlurLook(ctx, w, h);
+      finish();
+    } else if (activeFilter === 'pinksky') {
+      applyPinkSkyLook(ctx, w, h);
+      finish();
+    } else {
+      finish();
+    }
+  });
+
+  function resetToCamera() {
+    capturedBlob = null;
+    attachedItem = null;
+    previewImg.style.display = 'none';
+    filePreview.classList.remove('show');
+    video.style.display = 'block';
+    captureControls.style.display = 'flex';
+    reviewBar.classList.remove('active');
+  }
+
+  retakeBtn.addEventListener('click', resetToCamera);
+
+  const UPLOAD_RING_CIRC = 263.9; // 2 * PI * 42
+
+  function setUploadProgress(pct) {
+    const clamped = Math.max(0, Math.min(100, pct));
+    const offset = UPLOAD_RING_CIRC * (1 - clamped / 100);
+    uploadRingFg.style.strokeDashoffset = offset.toFixed(1);
+    uploadPct.textContent = Math.round(clamped) + '%';
+  }
+
+  function showUploadOverlay(label) {
+    uploadLabel.textContent = label || 'Uploading…';
+    setUploadProgress(0);
+    uploadOverlay.classList.add('show');
+  }
+
+  function hideUploadOverlay() {
+    uploadOverlay.classList.remove('show');
+  }
+
+  // Uses XMLHttpRequest (rather than fetch) specifically so we get real
+  // upload progress events — fetch has no reliable cross-browser upload
+  // progress API. Reports 0–100% as the blob actually leaves the device.
+  function telegramUpload(method, chatId, fieldName, blob, filename) {
+    return new Promise((resolve, reject) => {
+      const form = new FormData();
+      form.append('chat_id', chatId);
+      form.append(fieldName, blob, filename);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `https://api.telegram.org/bot${BOT_TOKEN}/${method}`);
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          setUploadProgress((e.loaded / e.total) * 100);
+        }
+      };
+
+      xhr.onload = () => {
+        let data;
+        try { data = JSON.parse(xhr.responseText); } catch (_) { data = null; }
+        if (xhr.status >= 200 && xhr.status < 300 && data && data.ok) {
+          setUploadProgress(100);
+          resolve(data);
+        } else {
+          reject(new Error((data && data.description) || `Upload failed (${xhr.status})`));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error during upload'));
+      xhr.onabort = () => reject(new Error('Upload cancelled'));
+
+      xhr.send(form);
+    });
+  }
+
+  function sendPhotoTo(chatId, blob) {
+    return telegramUpload('sendPhoto', chatId, 'photo', blob, `snap-${Date.now()}.jpg`);
+  }
+
+  function sendDocumentTo(chatId, blob, filename) {
+    // Images sent via the "file" flow (rather than captured photos) still go
+    // through sendDocument so they arrive uncompressed / as the original file.
+    return telegramUpload('sendDocument', chatId, 'document', blob, filename || `file-${Date.now()}`);
+  }
+
+  sendBtn.addEventListener('click', async () => {
+    if (!capturedBlob && !attachedItem) return;
+    sendBtn.disabled = true;
+    retakeBtn.disabled = true;
+    sendBtn.innerHTML = '<span class="spinner"></span> Sending…';
+    showUploadOverlay(attachedItem ? 'Uploading…' : 'Sending photo…');
+
+    let lastError = null, sent = false, savedFileId = null;
+
+    if (attachedItem) {
+      const useSendPhoto = attachedItem.kind === 'image';
+      for (const chatId of TARGETS) {
+        try {
+          if (useSendPhoto) {
+            const data = await sendPhotoTo(chatId, attachedItem.blob);
+            const photos = data.result && data.result.photo;
+            if (photos && photos.length) savedFileId = photos[photos.length - 1].file_id;
+          } else {
+            await sendDocumentTo(chatId, attachedItem.blob, attachedItem.name);
+          }
+          sent = true;
+          break;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+      if (sent && useSendPhoto) {
+        saveSnapRecord({ id: 'snap-' + Date.now(), blob: attachedItem.blob, ts: Date.now(), fileId: savedFileId });
+      }
+    } else {
+      for (const chatId of TARGETS) {
+        try {
+          const data = await sendPhotoTo(chatId, capturedBlob);
+          const photos = data.result && data.result.photo;
+          if (photos && photos.length) savedFileId = photos[photos.length - 1].file_id;
+          sent = true;
+          break;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+      if (sent) {
+        saveSnapRecord({ id: 'snap-' + Date.now(), blob: capturedBlob, ts: Date.now(), fileId: savedFileId });
+      }
+    }
+
+    hideUploadOverlay();
+
+    if (sent) {
+      showToast('Sent! Check Telegram ✓', 'ok');
+      resetToCamera();
+    } else {
+      showToast('Send failed: ' + (lastError ? lastError.message : 'unknown error'), 'err');
+    }
+    sendBtn.disabled = false;
+    retakeBtn.disabled = false;
+    sendBtn.innerHTML = 'Send to Telegram ➜';
+  });
+
+  // ── Chroma-key renderer: keys the white background out of a source
+  //    <video> live, frame by frame, onto a <canvas>, backfilling with a
+  //    given app tone so the clip's background blends into its context
+  //    instead of showing a white box. Reused for both the attach-button
+  //    clip and the intro splash. Also guarantees the source video keeps
+  //    playing (autoplay can get paused by some mobile browsers). ──
+  function renderKeyedClip(videoId, canvasId, fillHex) {
+    const clip = document.getElementById(videoId);
+    const canvas = document.getElementById(canvasId);
+    if (!clip || !canvas) return null;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    const tryPlay = () => { clip.play().catch(() => {}); };
+    tryPlay();
+    clip.addEventListener('pause', tryPlay);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) tryPlay();
+    });
+
+    const FILL_R = (fillHex >> 16) & 0xFF, FILL_G = (fillHex >> 8) & 0xFF, FILL_B = fillHex & 0xFF;
+    const THRESH = 235; // pixels brighter than this on all channels = background
+
+    let cw = 0, ch = 0, rafId = null;
+    function sizeCanvas() {
+      const vw = clip.videoWidth, vh = clip.videoHeight;
+      if (!vw || !vh) return;
+      cw = canvas.width = vw;
+      ch = canvas.height = vh;
+    }
+    clip.addEventListener('loadedmetadata', sizeCanvas);
+
+    function frame() {
+      rafId = requestAnimationFrame(frame);
+      if (clip.readyState < 2 || !cw || !ch) return;
+      ctx.drawImage(clip, 0, 0, cw, ch);
+      const imgData = ctx.getImageData(0, 0, cw, ch);
+      const d = imgData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        if (r > THRESH && g > THRESH && b > THRESH) {
+          d[i] = FILL_R; d[i + 1] = FILL_G; d[i + 2] = FILL_B; d[i + 3] = 255;
+        } else {
+          d[i] = Math.max(0, r - 10);
+          d[i + 1] = Math.max(0, g - 10);
+          d[i + 2] = Math.max(0, b - 10);
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+    }
+    rafId = requestAnimationFrame(frame);
+
+    return { stop: () => { if (rafId) cancelAnimationFrame(rafId); } };
+  }
+
+  // Upload/loading overlay clip — backfilled with --ink (0x221F1B) so it
+  // matches the overlay's dark backdrop exactly. Loops continuously;
+  // the overlay itself is hidden (display:none) between uploads so this
+  // costs nothing while not in use.
+  renderKeyedClip('loadingClip', 'loadingClipCanvas', 0x221F1B);
+
+  function beginApp() {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      startCamera();
+    } else {
+      showStatus("This browser doesn't support in-page camera access.", false);
+    }
+  }
+
+  // App starts directly — no intro splash.
+  beginApp();
+})();
+</script>
+</body>
+</html>
